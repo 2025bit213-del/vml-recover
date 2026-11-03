@@ -38,8 +38,9 @@ The database is PostgreSQL (not MySQL). In Supabase **SQL Editor**, run the migr
 
 1. `supabase/migrations/0001_initial_schema.sql`
 2. `supabase/migrations/0002_workflows_and_controls.sql`
+3. `supabase/migrations/0003_admin_bootstrap.sql`
 
-The second migration adds workflow permissions, assignment lookup, safer payment verification, audit triggers, and profile email data. Re-run neither migration in a different order. Check that the SQL Editor reports success for the whole script.
+The second migration adds workflow permissions, assignment lookup, safer payment verification, audit triggers, and profile email data. The third migration enables rate-limited, one-time owner account setup. Run each once and in order; check that Supabase SQL Editor reports success for each whole script.
 
 Configure Supabase **Authentication → URL Configuration**:
 
@@ -48,22 +49,11 @@ Configure Supabase **Authentication → URL Configuration**:
 - Enable email OTP/invitations and configure production SMTP before inviting real users.
 - Disable public sign-up; accounts should be invited by an administrator.
 
-## Create the first administrator
+## First administrator setup
 
-There is no public admin sign-up or hidden default admin. Create a test user in Supabase **Authentication → Users** first. Then, in SQL Editor, replace the example email and name below and run:
+The login page has a **First time here? Set up the site owner account** link. The owner enters their name, approved email, and one-time setup code. If that email already has an account, the account receives the initial ADMIN role; otherwise Supabase sends an invitation. The owner still verifies email and signs in normally. Once an active administrator exists, the setup endpoint permanently refuses to create another initial admin. Additional administrator accounts are invited from **Dashboard → Users**.
 
-```sql
-update public.profiles p
-set role = 'ADMIN',
-    full_name = 'Your Administrator Name',
-    is_locked = false
-from auth.users u
-where p.id = u.id
-  and lower(u.email) = lower('admin@example.com')
-returning p.id, p.email, p.role;
-```
-
-Confirm exactly one returned row with role `ADMIN`. Request a sign-in code at `/login` using that same email. This is a one-time bootstrap action for the project owner; after that, invite users from **Dashboard → Users**.
+Never use an admin setup code that has been posted in a chat, committed to Git, or otherwise shared publicly. Generate a new unique secret in a password manager and set it as `ADMIN_BOOTSTRAP_CODE` in Vercel. Set `ADMIN_BOOTSTRAP_EMAILS` to the owner's exact email address (multiple addresses may be comma-separated, but only one initial admin can be claimed). Keep the code out of source control and share it with the owner through a private channel. After first-admin setup succeeds, remove both bootstrap variables from Vercel and redeploy. The site's regular invitation and email verification remain enabled.
 
 ## Invite and manage users
 
@@ -85,6 +75,8 @@ Vercel environment variables required:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase public anon/publishable key |
 | `NEXT_PUBLIC_SITE_URL` | Exact public Vercel origin used for invite redirects |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only secret used by administrator invitations |
+| `ADMIN_BOOTSTRAP_CODE` | Temporary one-time owner setup secret; remove after setup |
+| `ADMIN_BOOTSTRAP_EMAILS` | Owner email address(es) allowed to claim initial admin |
 
 Add these in Vercel Project Settings → Environment Variables for the deployment environments, then redeploy. Never share or commit the service-role key.
 
@@ -93,7 +85,7 @@ Add these in Vercel Project Settings → Environment Variables for the deploymen
 Use a staging Supabase project, test mailboxes, and fake borrower/case/payment data.
 
 1. **Authentication:** Open `/login`; request an OTP for an invited user; verify the code. `/` redirects to login. A signed-out request to `/dashboard` redirects to login.
-2. **Admin bootstrap:** Sign in as the bootstrapped admin. Confirm **Users**, **Organizations**, and **Audit trail** appear.
+2. **Admin bootstrap:** On `/login`, choose **First time here? Set up the site owner account**, enter the allow-listed owner email, name, and newly generated code. Follow the Supabase invitation if sent, or enter the email OTP. Confirm **Users**, **Organizations**, and **Audit trail** appear. Remove the bootstrap variables from Vercel afterward.
 3. **Set up roles:** Add a test creditor organization. Invite separate test accounts for DIRECTOR, COLLECTION_MANAGER, FIELD_OFFICER, FINANCE, LEGAL, CLIENT (linked to that organization), and DEBTOR.
 4. **Create and assign a case:** As ADMIN or COLLECTION_MANAGER, create a case, link the debtor account, and assign the field officer. Confirm the debtor and field officer only see their linked/assigned cases.
 5. **Collateral and visits:** Add collateral to the case, schedule a field visit, then sign in as the assigned FIELD_OFFICER and record an outcome.
