@@ -1,0 +1,14 @@
+{
+  "name": "VML RECOVER - Debt Recovery & Legal Platform",
+  "short_name": "VML RECOVER",
+  "description": "Institutional debt recovery, loan workout and legal mediation platform.",
+  "start_url": "/login",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070D1E",
+  "theme_color": "#070D1E",
+  "icons": [
+    {"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png"},
+    {"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png"}
+  ]
+}
