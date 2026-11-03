@@ -34,8 +34,9 @@ This repository is the integrated application foundation and first implementatio
 - PWA installation support; no Android-native application or AI-insights module.
 - Acceptance: production build, dependency audit, RLS tests, authentication tests, backup restore test and Vercel deployment smoke test all pass.
 
-## Current release status
-- Next.js application shell, Supabase client/server wiring, authentication entry, invitation endpoint, initial schema, RLS baseline, dashboard shell and PWA scaffolding are included.
-- The dashboard still contains a presentation shell; the full operational workflows and eight distinct role-specific dashboards are not yet complete in this package.
-- Supabase SQL and policies require a project-specific review and execution. This package has not been verified against the live Supabase project.
-- A clean production build must be run after dependencies are installed. Do not treat this package as production-certified.
+## Current implementation status
+- The application includes invitation/OTP authentication, role-specific navigation, case creation and updates, officer assignment, collateral entry, payment recording and verification, promise tracking, field visit scheduling/outcomes, legal matter records, organizations, user access administration, and an administrator audit view.
+- The `0002_workflows_and_controls.sql` migration must be applied after `0001_initial_schema.sql`. Application functionality and its access controls are not active until the deployment uses that migration.
+- Payment verification is an internal ledger action. There is no bank/mobile-money integration, debtor payment collection, generated receipt delivery, or automated reconciliation.
+- The app does not yet include automated role-matrix/RLS tests, record pagination, backups/restore verification, production SMTP verification, legal document storage, or a full incident-response process.
+- Run the end-to-end checklist in `README.md` using separate test accounts and synthetic records. Do not use real borrower data or money until a qualified reviewer has verified the deployed RLS policies and operational requirements.

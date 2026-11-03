@@ -5,4 +5,5 @@ node_modules
 data/*.json
 !data/.gitkeep
 *.log
+*.tsbuildinfo
 .DS_Store

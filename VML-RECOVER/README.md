@@ -1,62 +1,114 @@
 # VML RECOVER
 
-Institutional debt recovery, loan workout and legal mediation platform.
+VML RECOVER is a role-based debt recovery workspace built with Next.js, Supabase Auth, and PostgreSQL Row Level Security (RLS). It provides operational record-keeping; it is not a payment processor, legal advice system, or production certification.
 
-## Technology
-- Next.js 14 App Router, React 18 and TypeScript
-- Supabase Auth and PostgreSQL with Row Level Security
-- Tailwind CSS and Lucide icons
-- Progressive Web App install scaffolding
+## Workspaces and current functionality
 
-## 1. Local setup
-1. Install Node.js 20 or later.
-2. Extract this repository and open its root folder in a terminal.
-3. Copy `.env.example` to `.env.local`.
-4. `.env.example` contains the URL for project `cwofwgnandykjacgcwvo` and a placeholder for its publishable key. Confirm the URL matches your Supabase Dashboard and replace the placeholder with the project's publishable (formerly anon) key.
-5. Keep `SUPABASE_SERVICE_ROLE_KEY` empty unless you configure the server-side invitation endpoint. Get the secret from Supabase Dashboard > Project Settings > API Keys. Never commit it or expose it to browser code.
-6. Install dependencies: `npm install`.
-7. Run the development server: `npm run dev`.
+| Role | Workspace access |
+|---|---|
+| ADMIN | Cases, collateral, payments and verification, promises, visits, legal matters, organizations, user invitations/access, and audit trail |
+| DIRECTOR | Portfolio cases, assignments, payment and operations visibility |
+| COLLECTION_MANAGER | Cases, assignments, payments, promises, visits, collateral, and legal records |
+| FIELD_OFFICER | Assigned cases, collateral on assigned cases, promises, and assigned visits |
+| FINANCE | Cases, payment recording and verification, and promises |
+| LEGAL | Cases and legal matter records |
+| CLIENT | Read-only cases and payments for the linked organization |
+| DEBTOR | Own linked cases, payment history, and promises; may request a promise-to-pay |
 
-## 2. Supabase database setup
-The Supabase project is already identified in `.env.example`; this code does not create or administer the cloud project automatically.
+Operational writes are validated by the server and constrained by database policies. Payment recording does not change a balance; finance/admin verification does so atomically, rejects duplicate references, rejects overpayments, and prevents a finance user from verifying their own payment. An administrator may verify as an override. Operational record changes are written to the administrator-only audit trail.
 
-1. Open the SQL Editor in your Supabase Dashboard.
-2. Review and run `supabase/migrations/0001_initial_schema.sql`.
-3. Configure Authentication > Providers / Email for email OTP or invitations, and configure a production SMTP provider.
-4. Disable public sign-ups. Accounts should be provisioned by an authorized administrator.
-5. Create the first administrator using a controlled bootstrap process. Do not expose service credentials in the browser. Verify the first admin's profile and role before inviting other users.
-6. Test every RLS policy with separate accounts for each role before loading real data.
+The current implementation is a usable workflow foundation, not a fully certified debt-collection product. It does not integrate a bank/mobile-money gateway, process a debtor payment, send receipts, upload legal documents, collect GPS, implement automated repayment approvals, or provide an automated RLS test suite. Use synthetic data until policies and workflows have been independently tested.
 
-The PostgreSQL connection string is not required by the Next.js application at runtime. Do not replace `[YOUR-PASSWORD]` with a real password in this repository. The Supabase client uses the project URL and publishable key; privileged server operations require a server-only secret key.
+## Local setup
 
-## 3. Supabase CLI (optional)
-Install the Supabase CLI, then run:
+1. Use Node.js 20 or later.
+2. Copy `.env.example` to `.env.local`.
+3. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_SITE_URL`. For local use, the site URL is `http://localhost:3000`.
+4. For administrator invitations, set `SUPABASE_SERVICE_ROLE_KEY` to a Supabase secret/service-role key. Keep it server-side only; never use a `NEXT_PUBLIC_` prefix or commit the value.
+5. Install and start:
 
-```bash
-supabase login
-supabase init
-supabase link --project-ref cwofwgnandykjacgcwvo
-supabase db push
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+## Supabase setup
+
+The database is PostgreSQL (not MySQL). In Supabase **SQL Editor**, run the migrations in order:
+
+1. `supabase/migrations/0001_initial_schema.sql`
+2. `supabase/migrations/0002_workflows_and_controls.sql`
+
+The second migration adds workflow permissions, assignment lookup, safer payment verification, audit triggers, and profile email data. Re-run neither migration in a different order. Check that the SQL Editor reports success for the whole script.
+
+Configure Supabase **Authentication → URL Configuration**:
+
+- Set the Site URL to the deployed app’s origin.
+- Add `https://YOUR-DEPLOYMENT-DOMAIN/auth/callback` to the redirect URL allow list.
+- Enable email OTP/invitations and configure production SMTP before inviting real users.
+- Disable public sign-up; accounts should be invited by an administrator.
+
+## Create the first administrator
+
+There is no public admin sign-up or hidden default admin. Create a test user in Supabase **Authentication → Users** first. Then, in SQL Editor, replace the example email and name below and run:
+
+```sql
+update public.profiles p
+set role = 'ADMIN',
+    full_name = 'Your Administrator Name',
+    is_locked = false
+from auth.users u
+where p.id = u.id
+  and lower(u.email) = lower('admin@example.com')
+returning p.id, p.email, p.role;
 ```
 
-Review the migration before `db push`. The SQL Editor method is also available. Never commit access tokens or database passwords.
+Confirm exactly one returned row with role `ADMIN`. Request a sign-in code at `/login` using that same email. This is a one-time bootstrap action for the project owner; after that, invite users from **Dashboard → Users**.
 
-## 4. Verify before deployment
+## Invite and manage users
+
+In the deployed app, an administrator signs in and opens **Users** in the left navigation:
+
+1. Invite a user with name, email, and one of the eight roles.
+2. For `CLIENT`, select the organization the client belongs to.
+3. The user follows the email invitation link; it verifies through `/auth/callback`.
+4. After verification, the app sends them to the workspace for their role.
+5. Use **Users → User access** to change a role, link an organization, or lock/unlock an account.
+
+Create organizations under **Organizations** before inviting a client. Invite a debtor before creating their case if the case should be linked directly to their login.
+
+Vercel environment variables required:
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase public anon/publishable key |
+| `NEXT_PUBLIC_SITE_URL` | Exact public Vercel origin used for invite redirects |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only secret used by administrator invitations |
+
+Add these in Vercel Project Settings → Environment Variables for the deployment environments, then redeploy. Never share or commit the service-role key.
+
+## End-to-end test checklist
+
+Use a staging Supabase project, test mailboxes, and fake borrower/case/payment data.
+
+1. **Authentication:** Open `/login`; request an OTP for an invited user; verify the code. `/` redirects to login. A signed-out request to `/dashboard` redirects to login.
+2. **Admin bootstrap:** Sign in as the bootstrapped admin. Confirm **Users**, **Organizations**, and **Audit trail** appear.
+3. **Set up roles:** Add a test creditor organization. Invite separate test accounts for DIRECTOR, COLLECTION_MANAGER, FIELD_OFFICER, FINANCE, LEGAL, CLIENT (linked to that organization), and DEBTOR.
+4. **Create and assign a case:** As ADMIN or COLLECTION_MANAGER, create a case, link the debtor account, and assign the field officer. Confirm the debtor and field officer only see their linked/assigned cases.
+5. **Collateral and visits:** Add collateral to the case, schedule a field visit, then sign in as the assigned FIELD_OFFICER and record an outcome.
+6. **Payment control:** As COLLECTION_MANAGER, record a payment with a unique reference. Confirm the case balance is unchanged. Sign in as FINANCE (a different account) and verify it; confirm the balance decreases exactly once. Try a duplicate reference, overpayment, repeat verification, and verifying your own payment; each must fail without changing the balance.
+7. **Promises:** Create a promise as staff, then update it to KEPT or BROKEN. As the linked DEBTOR, create a promise request and confirm unrelated cases are unavailable.
+8. **Legal:** As LEGAL, add a legal matter. Confirm the legal role cannot administer users or verify payments.
+9. **Client isolation:** As CLIENT, verify only cases belonging to its linked organization are visible, and that write controls are absent.
+10. **Admin controls:** Lock a test account and verify workflow writes are rejected. Unlock it, sign out, then open **Audit trail** and check recorded operations.
+11. **Deployment:** Check Vercel logs after a fresh deployment and confirm `/login`, invitation callback, and OTP sign-in work on the deployed domain.
+
+Do not treat a successful build or a visible dashboard as proof of RLS isolation. Complete the role checks above before using real borrower information or processing real money.
+
+## Validation
 
 ```bash
 npm run typecheck
 npm run build
 ```
-
-Fix all errors before deployment. Then run `npm run start` and test login, invitation, protected routes and database access.
-
-## 5. Deploy to Vercel
-1. Push this project to a GitHub repository that you own or control.
-2. Import that repository into Vercel.
-3. Add the variables from `.env.example` in Vercel Project Settings > Environment Variables.
-4. Add `SUPABASE_SERVICE_ROLE_KEY` only as a server-side environment variable if the invitation endpoint is enabled. Never prefix it with `NEXT_PUBLIC_`.
-5. Deploy to Preview first. Run the smoke tests, then promote to Production.
-6. Connect the production branch so future Git pushes trigger deployments.
-
-## Security and readiness
-This is an integration foundation, not a production-certified debt collection system. See `docs/MILESTONES.md` for the six milestones and acceptance gates. The operational workflows, complete role-specific workspaces, and security test suite still require implementation and verification. Do not use live borrower data or real payment processing until the relevant gates have passed.
