@@ -2,6 +2,7 @@ import {createHash, timingSafeEqual} from "node:crypto";
 import {NextRequest, NextResponse} from "next/server";
 import {createClient} from "@supabase/supabase-js";
 import {z} from "zod";
+import {getPublicSiteUrl} from "@/lib/site-url";
 
 const requestSchema=z.object({
   email:z.string().trim().email().max(254),
@@ -32,27 +33,27 @@ export async function POST(request:NextRequest) {
   const expectedCode=process.env.ADMIN_BOOTSTRAP_CODE;
   const supabaseUrl=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const siteUrl=process.env.NEXT_PUBLIC_SITE_URL;
 
-  if(!expectedCode||allowedEmails.length===0||!supabaseUrl||!serviceKey||!siteUrl) {
+  if(!expectedCode||allowedEmails.length===0||!supabaseUrl||!serviceKey) {
     return NextResponse.json({error:"First-admin setup is not enabled. Contact the site owner."},{status:503});
   }
   if(!allowedEmails.includes(email)) {
     return NextResponse.json({error:"The setup details could not be verified."},{status:403});
   }
 
+  const admin=createClient(supabaseUrl,serviceKey,{auth:{autoRefreshToken:false,persistSession:false}});
+  if(!safeEqual(parsed.data.accessCode,expectedCode)) {
+    return NextResponse.json({error:"The setup details could not be verified."},{status:403});
+  }
+
   const ip=request.headers.get("x-real-ip")??"unknown";
   const attemptKey=createHash("sha256").update(`${ip}:${email}`).digest("hex");
-  const admin=createClient(supabaseUrl,serviceKey,{auth:{autoRefreshToken:false,persistSession:false}});
   const {data:rateAllowed,error:rateError}=await admin.rpc("consume_admin_bootstrap_attempt",{p_attempt_key:attemptKey});
   if(rateError) {
     console.error("Admin bootstrap rate check failed",rateError);
     return NextResponse.json({error:"First-admin setup is temporarily unavailable."},{status:503});
   }
-  if(!rateAllowed) return NextResponse.json({error:"Too many setup attempts. Try again in an hour."},{status:429});
-  if(!safeEqual(parsed.data.accessCode,expectedCode)) {
-    return NextResponse.json({error:"The setup details could not be verified."},{status:403});
-  }
+  if(!rateAllowed) return NextResponse.json({error:"Too many administrator setup attempts. Contact the site owner to reset setup."},{status:429});
 
   const {count,error:adminCheckError}=await admin.from("profiles")
     .select("id",{count:"exact",head:true}).eq("role","ADMIN").eq("is_locked",false);
@@ -75,10 +76,9 @@ export async function POST(request:NextRequest) {
   if(!profileId) {
     let callbackUrl:URL;
     try {
-      callbackUrl=new URL("/auth/callback",siteUrl);
-      if(callbackUrl.protocol!=="https:"&&callbackUrl.hostname!=="localhost") throw new Error("HTTPS required");
+      callbackUrl=new URL("/auth/callback",getPublicSiteUrl());
     } catch {
-      return NextResponse.json({error:"The site owner's invitation URL is not configured correctly."},{status:503});
+      return NextResponse.json({error:"The deployment's public HTTPS URL is not configured correctly."},{status:503});
     }
     const {data,error}=await admin.auth.admin.inviteUserByEmail(email,{
       data:{full_name:fullName},

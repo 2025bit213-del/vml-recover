@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { z } from "zod";
 import { ROLES } from "@/lib/roles";
+import { getPublicSiteUrl } from "@/lib/site-url";
 const schema=z.object({
   email:z.string().email(),
   fullName:z.string().trim().min(2).max(120),
@@ -21,10 +22,13 @@ export async function POST(req:Request){
   if(parsed.data.role==="CLIENT"&&!parsed.data.organizationId)return NextResponse.json({error:"Institutional client accounts must be linked to an organization."},{status:400});
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;
   if(!url||!key)return NextResponse.json({error:"Server invitation service is not configured"},{status:503});
-  const siteUrl=process.env.NEXT_PUBLIC_SITE_URL;
-  if(!siteUrl)return NextResponse.json({error:"The application site URL is not configured on the server."},{status:503});
   const admin=createClient(url,key,{auth:{autoRefreshToken:false,persistSession:false}});
-  const redirectTo=new URL("/auth/callback",siteUrl).toString();
+  let redirectTo:string;
+  try {
+   redirectTo=new URL("/auth/callback",getPublicSiteUrl()).toString();
+  } catch {
+   return NextResponse.json({error:"The deployment's public HTTPS URL is not configured correctly."},{status:503});
+  }
   const {data,error}=await admin.auth.admin.inviteUserByEmail(parsed.data.email,{
    data:{full_name:parsed.data.fullName},
    redirectTo

@@ -53,7 +53,7 @@ Configure Supabase **Authentication → URL Configuration**:
 
 The login page has a **First time here? Set up the site owner account** link. The owner enters their name, approved email, and one-time setup code. If that email already has an account, the account receives the initial ADMIN role; otherwise Supabase sends an invitation. The owner still verifies email and signs in normally. Once an active administrator exists, the setup endpoint permanently refuses to create another initial admin. Additional administrator accounts are invited from **Dashboard → Users**.
 
-Never use an admin setup code that has been posted in a chat, committed to Git, or otherwise shared publicly. Generate a new unique secret in a password manager and set it as `ADMIN_BOOTSTRAP_CODE` in Vercel. Set `ADMIN_BOOTSTRAP_EMAILS` to the owner's exact email address (multiple addresses may be comma-separated, but only one initial admin can be claimed). Keep the code out of source control and share it with the owner through a private channel. After first-admin setup succeeds, remove both bootstrap variables from Vercel and redeploy. The site's regular invitation and email verification remain enabled.
+Never use an admin setup code that has been posted in a chat, committed to Git, or otherwise shared publicly. Generate a new unique secret in a password manager and set it as `ADMIN_BOOTSTRAP_CODE` in Vercel. Set `ADMIN_BOOTSTRAP_EMAILS` to the owner's exact email address (multiple addresses may be comma-separated, but only one initial admin can be claimed). Keep the code out of source control and share it with the owner through a private channel. On Vercel, invitation links use Vercel's production-domain environment variable in preference to a local `.env` value. Add that domain's `/auth/callback` URL to Supabase's allowed redirect URLs. After first-admin setup succeeds, remove both bootstrap variables from Vercel and redeploy. The site's regular invitation and email verification remain enabled.
 
 ## Invite and manage users
 
@@ -79,6 +79,12 @@ Vercel environment variables required:
 | `ADMIN_BOOTSTRAP_EMAILS` | Owner email address(es) allowed to claim initial admin |
 
 Add these in Vercel Project Settings → Environment Variables for the deployment environments, then redeploy. Never share or commit the service-role key.
+
+Troubleshooting:
+
+- If an invitation email opens `localhost`, Vercel must be redeployed with its production domain configured in **Authentication → URL Configuration → Redirect URLs** in Supabase. The app uses Vercel's production domain to generate email links; do not set the Vercel site URL to `http://localhost:3000`.
+- If the app says **Too many administrator setup attempts**, wait one hour or have the project owner clear the hashed setup-attempt counters in SQL Editor with `truncate table public.admin_bootstrap_attempts;`.
+- If Supabase says **email rate limit exceeded**, stop requesting codes/invitations and wait for Supabase's email-send cooldown, or configure a custom SMTP provider in Supabase Auth. Clearing the app's setup counters does not reset Supabase's email limit.
 
 ## End-to-end test checklist
 
