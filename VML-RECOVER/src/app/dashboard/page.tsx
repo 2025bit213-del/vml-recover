@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Dashboard } from "@/components/dashboard";
+export const dynamic = "force-dynamic";
 export default async function DashboardPage(){
  const supabase=createClient(); const {data:{user}}=await supabase.auth.getUser();
  if(!user) redirect("/login");
- const {data:profile}=await supabase.from("profiles").select("full_name,role,organization").eq("id",user.id).single();
+ const {data:profile}=await supabase.from("profiles").select("full_name,role").eq("id",user.id).single();
  return <Dashboard email={user.email??""} profile={profile}/>
 }

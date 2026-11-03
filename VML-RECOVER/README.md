@@ -12,7 +12,7 @@ Institutional debt recovery, loan workout and legal mediation platform.
 1. Install Node.js 20 or later.
 2. Extract this repository and open its root folder in a terminal.
 3. Copy `.env.example` to `.env.local`.
-4. The Supabase URL and publishable key are prefilled for project `cwofwgnandykjacgcwvo`. Confirm they match your Supabase Dashboard.
+4. `.env.example` contains the URL for project `cwofwgnandykjacgcwvo` and a placeholder for its publishable key. Confirm the URL matches your Supabase Dashboard and replace the placeholder with the project's publishable (formerly anon) key.
 5. Keep `SUPABASE_SERVICE_ROLE_KEY` empty unless you configure the server-side invitation endpoint. Get the secret from Supabase Dashboard > Project Settings > API Keys. Never commit it or expose it to browser code.
 6. Install dependencies: `npm install`.
 7. Run the development server: `npm run dev`.
