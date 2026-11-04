@@ -1,6 +1,7 @@
 "use client";
 
 import {useState, type FormEvent} from "react";
+import {useEffect} from "react";
 import {createClient} from "@/lib/supabase/client";
 
 type Mode="signin"|"admin-setup";
@@ -16,6 +17,24 @@ export function LoginForm() {
   const [message,setMessage]=useState("");
   const [error,setError]=useState(false);
 
+  useEffect(()=>{
+    const supabase=createClient();
+    let active=true;
+    const goToWorkspace=()=>{
+      if(active) window.location.replace("/dashboard");
+    };
+    void supabase.auth.getSession().then(({data})=>{
+      if(data.session) goToWorkspace();
+    });
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
+      if(session) goToWorkspace();
+    });
+    return ()=>{
+      active=false;
+      subscription.unsubscribe();
+    };
+  },[]);
+
   function showMessage(value:string,isError=false) {
     setMessage(value);
     setError(isError);
@@ -30,7 +49,10 @@ export function LoginForm() {
       if(step==="details") {
         const {error}=await supabase.auth.signInWithOtp({
           email:email.trim(),
-          options:{shouldCreateUser:false}
+          options:{
+            shouldCreateUser:false,
+            emailRedirectTo:`${window.location.origin}/auth/callback`
+          }
         });
         if(error) throw error;
         setStep("otp");
