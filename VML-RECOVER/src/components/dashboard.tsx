@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ROLE_LABELS, ROLES, type AppRole } from "@/lib/roles";
 
 type Row = Record<string, unknown>;
-type Profile = {id: string; full_name: string; email: string | null; role: AppRole; organization_id: string | null; is_locked: boolean};
+type Profile = {id: string; full_name: string; email: string | null; role: AppRole; organization_id: string | null; is_locked: boolean; approval_status: "PENDING"|"APPROVED"|"REJECTED"};
 export type WorkspaceData = {
   profile: Profile;
   email: string;
@@ -115,19 +115,7 @@ export function Dashboard({data}: {data: WorkspaceData}) {
       else payload.scheduledAt = null;
       if (!values.officerId) payload.officerId = null;
     }
-    if (await send("/api/operations", payload)) form.reset();
-  }
-
-  async function invite(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const values = Object.fromEntries(new FormData(form).entries());
-    if (await send("/api/admin/invite", {
-      email: values.email,
-      fullName: values.fullName,
-      role: values.role,
-      organizationId: values.organizationId || null
-    })) form.reset();
+    if (await send("/api/operations", payload) && action !== "update_profile") form.reset();
   }
 
   async function signOut() {
@@ -181,7 +169,7 @@ export function Dashboard({data}: {data: WorkspaceData}) {
             <Field label="Debtor full name" name="debtorFullName" required/>
             <Field label="Loan account number" name="loanAccountNumber"/>
             <Select label="Creditor organization" name="creditorId" required options={data.organizations.map(row => [text(row.id), text(row.name)])}/>
-            <Select label="Link invited debtor (optional)" name="debtorUserId" options={[["", "Not linked"], ...data.users.filter(row => row.role === "DEBTOR").map(row => [text(row.id), `${text(row.full_name)} · ${text(row.id).slice(0, 8)}`])]} disabled={role !== "ADMIN"}/>
+            <Select label="Link approved debtor (optional)" name="debtorUserId" options={[["", "Not linked"], ...data.users.filter(row => row.role === "DEBTOR" && row.approval_status === "APPROVED" && !row.is_locked).map(row => [text(row.id), `${text(row.full_name)} · ${text(row.id).slice(0, 8)}`])]} disabled={role !== "ADMIN"}/>
             <Select label="Assign field officer (optional)" name="assignedOfficer" options={[["", "Unassigned"], ...data.officers.map(row => [text(row.id), text(row.full_name)])]}/>
             <Field label="Principal (UGX)" name="principal" type="number" min="0.01" step="0.01" required/>
             <Field label="Accrued interest (UGX)" name="accruedInterest" type="number" min="0" step="0.01" defaultValue="0" required/>
@@ -284,14 +272,10 @@ export function Dashboard({data}: {data: WorkspaceData}) {
           <Panel title="Organizations"><div className="space-y-3">{data.organizations.length === 0 && <Empty/>}{data.organizations.map(row => <Record key={text(row.id)} title={text(row.name)} detail={text(row.organization_type)}/>)}</div></Panel>
         </section>}
         {section === "Users" && <section className="space-y-5">
-          {role === "ADMIN" && <Panel title="Invite a user"><form onSubmit={invite} className="grid md:grid-cols-2 gap-3">
-            <Field label="Full name" name="fullName" required/>
-            <Field label="Work email" name="email" type="email" required/>
-            <Select label="Role" name="role" required options={ROLES.map(value => [value, ROLE_LABELS[value]])}/>
-            <Select label="Organization (required for clients)" name="organizationId" options={[["", "No organization"], ...data.organizations.map(row => [text(row.id), text(row.name)])]}/>
-            <Submit busy={busy}>Send invitation</Submit>
-          </form><p className="mt-3 text-xs text-slate-500">The invite sends an email through Supabase Auth. The recipient must accept the invite and complete email verification.</p></Panel>}
-          <Panel title={`User access (${data.users.length})`}><div className="space-y-3">{data.users.length === 0 && <Empty/>}{data.users.map(row => <UserAccess key={text(row.id)} profile={row} organizations={data.organizations} busy={busy} onSubmit={submit}/>)}</div></Panel>
+          <Panel title={`User approvals and access (${data.users.length})`}>
+            <p className="mb-4 text-xs text-slate-400">Users create their own account request with an email and password; no verification email is sent. They cannot sign in to a workspace until you approve them and assign the final role. Their requested role is only a request.</p>
+            <div className="space-y-3">{data.users.length === 0 && <Empty/>}{data.users.map(row => <UserAccess key={text(row.id)} profile={row} organizations={data.organizations} busy={busy} onSubmit={submit}/>)}</div>
+          </Panel>
         </section>}
         {section === "Audit trail" && <Panel title="Recent security and operations events"><div className="space-y-3">{data.audit.length === 0 && <Empty/>}{data.audit.map(row => <Record key={text(row.id)} title={`${text(row.action).toUpperCase()} · ${text(row.entity_type)} · ${text(row.entity_id)}`} detail={`${when(row.created_at)} · actor ${text(row.actor_id, "system")}`}/>)}</div></Panel>}
       </div>
@@ -326,9 +310,10 @@ function CaseList({cases, organizations}: {cases: Row[]; organizations: Row[]}) 
 function UserAccess({profile, organizations, busy, onSubmit}: {profile: Row; organizations: Row[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>, action: string) => Promise<void>}) {
   return <form onSubmit={event => onSubmit(event, "update_profile")} className="rounded-lg border border-line bg-panel p-4 grid md:grid-cols-4 gap-3 items-end">
     <input type="hidden" name="id" value={text(profile.id)}/>
-    <p className="text-sm"><span className="block font-medium">{text(profile.full_name)}</span><span className="block text-xs text-slate-400">{text(profile.email)}</span><span className="text-xs text-slate-500">{text(profile.id).slice(0, 8)} · {profile.is_locked ? "Locked" : "Active"}</span></p>
+    <p className="text-sm"><span className="block font-medium">{text(profile.full_name)}</span><span className="block text-xs text-slate-400">{text(profile.email)}</span><span className="block text-xs text-amber-300">Requested: {ROLE_LABELS[text(profile.requested_role, "DEBTOR") as AppRole] ?? text(profile.requested_role)}</span><span className="text-xs text-slate-500">{text(profile.id).slice(0, 8)} · {text(profile.approval_status, "PENDING")} · {profile.is_locked ? "Locked" : "Active"}</span></p>
     <Select label="Role" name="role" required defaultValue={text(profile.role)} options={ROLES.map(value => [value, ROLE_LABELS[value]])}/>
     <Select label="Organization" name="organizationId" defaultValue={text(profile.organization_id, "")} options={[["", "No organization"], ...organizations.map(row => [text(row.id), text(row.name)])]}/>
+    <Select label="Approval" name="approvalStatus" required defaultValue={text(profile.approval_status,"PENDING")} options={[["PENDING","Pending review"],["APPROVED","Approved"],["REJECTED","Rejected"]]}/>
     <div className="flex items-center gap-3"><label className="text-xs text-slate-400 flex items-center gap-2"><input type="hidden" name="isLocked" value="false"/><input name="isLocked" type="checkbox" value="true" defaultChecked={Boolean(profile.is_locked)}/> Locked</label><button disabled={busy} className="rounded-md border border-line px-3 py-2 text-sm hover:border-gold disabled:opacity-50">Save access</button></div>
   </form>;
 }

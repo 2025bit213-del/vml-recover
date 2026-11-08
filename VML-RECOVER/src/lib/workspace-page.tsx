@@ -14,7 +14,7 @@ export async function WorkspacePage({audience}: {audience: "staff" | "client" | 
 
   const {data: profile, error: profileError} = await supabase
     .from("profiles")
-    .select("id,full_name,email,role,organization_id,is_locked")
+    .select("id,full_name,email,role,organization_id,is_locked,approval_status")
     .eq("id", user.id)
     .single();
   if (profileError || !profile) {
@@ -24,6 +24,7 @@ export async function WorkspacePage({audience}: {audience: "staff" | "client" | 
     </main>;
   }
   const role = profile.role as AppRole;
+  if(profile.approval_status!=="APPROVED"||profile.is_locked) redirect("/pending-approval");
   const noRows = Promise.resolve({data: [], error: null});
   const isAudienceMatch = audience === "staff"
     ? staffRoles.includes(role)
@@ -49,7 +50,7 @@ export async function WorkspacePage({audience}: {audience: "staff" | "client" | 
       ? supabase.from("organizations").select("id,name,organization_type").order("name").limit(200)
       : noRows,
     role === "ADMIN"
-      ? supabase.from("profiles").select("id,full_name,email,role,organization_id,is_locked").order("created_at", {ascending: false}).limit(200)
+      ? supabase.from("profiles").select("id,full_name,email,role,organization_id,is_locked,requested_role,approval_status").order("created_at", {ascending: false}).limit(200)
       : noRows,
     role === "ADMIN"
       ? supabase.from("audit_logs").select("id,actor_id,action,entity_type,entity_id,created_at").order("created_at", {ascending: false}).limit(100)

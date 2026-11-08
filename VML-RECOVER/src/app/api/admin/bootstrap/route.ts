@@ -56,12 +56,12 @@ export async function POST(request:NextRequest) {
   if(!rateAllowed) return NextResponse.json({error:"Too many administrator setup attempts. Contact the site owner to reset setup."},{status:429});
 
   const {count,error:adminCheckError}=await admin.from("profiles")
-    .select("id",{count:"exact",head:true}).eq("role","ADMIN").eq("is_locked",false);
+    .select("id",{count:"exact",head:true}).eq("role","ADMIN").eq("is_locked",false).eq("approval_status","APPROVED");
   if(adminCheckError) {
     console.error("Admin bootstrap status check failed",adminCheckError);
     return NextResponse.json({error:"First-admin setup is temporarily unavailable."},{status:503});
   }
-  if((count??0)>0) return NextResponse.json({error:"Initial setup is already complete. Ask an administrator to invite you."},{status:409});
+  if((count??0)>0) return NextResponse.json({error:"Initial setup is already complete. Ask an administrator to review your account request."},{status:409});
 
   let profileId:string|undefined;
   const {data:existingProfile,error:lookupError}=await admin.from("profiles")
@@ -90,6 +90,11 @@ export async function POST(request:NextRequest) {
     }
     profileId=data.user.id;
     invitationSent=true;
+  } else {
+    const {data:{user:existingUser},error:userError}=await admin.auth.admin.getUserById(profileId);
+    if(userError||!existingUser?.email_confirmed_at) {
+      return NextResponse.json({error:"The owner account must verify its email before it can become the administrator. Remove the unverified account from Supabase Auth and retry setup."},{status:409});
+    }
   }
 
   const {error:claimError}=await admin.rpc("bootstrap_first_admin",{
@@ -106,6 +111,6 @@ export async function POST(request:NextRequest) {
     invitationSent,
     message:invitationSent
       ? "Administrator invitation sent. Open that email and follow its link to activate your account."
-      : "Administrator access is ready. Continue with email verification."
+      : "Administrator access is ready. Sign in or use the password setup link if needed."
   });
 }

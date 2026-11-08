@@ -97,6 +97,7 @@ const operation = z.discriminatedUnion("action", [
     action: z.literal("update_profile"),
     id: uuid,
     role: z.enum(ROLES),
+    approvalStatus: z.enum(["PENDING", "APPROVED", "REJECTED"]),
     organizationId: uuid.nullable(),
     isLocked: z.boolean()
   })
@@ -110,9 +111,12 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({error: "Sign in to continue."}, {status: 401});
 
   const {data: profile, error: profileError} = await supabase
-    .from("profiles").select("role,is_locked").eq("id", user.id).single();
+    .from("profiles").select("role,is_locked,approval_status").eq("id", user.id).single();
   if (profileError || !profile) return NextResponse.json({error: "Your account profile is unavailable."}, {status: 403});
   if (profile.is_locked) return NextResponse.json({error: "Your account is locked. Contact an administrator."}, {status: 403});
+  if (profile.approval_status !== "APPROVED") {
+    return NextResponse.json({error: "Your account is waiting for administrator approval."}, {status: 403});
+  }
 
   let body: unknown;
   try {
@@ -282,25 +286,26 @@ export async function POST(request: Request) {
         if (data.role === "CLIENT" && !data.organizationId) {
           return NextResponse.json({error: "Client accounts must be linked to an organization."}, {status: 400});
         }
-        if (data.id === user.id && (data.role !== "ADMIN" || data.isLocked)) {
-          return NextResponse.json({error: "You cannot demote or lock your own administrator account."}, {status: 400});
+        if (data.id === user.id && (data.role !== "ADMIN" || data.isLocked || data.approvalStatus !== "APPROVED")) {
+          return NextResponse.json({error: "You cannot remove your own administrator access."}, {status: 400});
         }
-        if (data.role !== "ADMIN" || data.isLocked) {
+        if (data.role !== "ADMIN" || data.isLocked || data.approvalStatus !== "APPROVED") {
           const {count, error: countError} = await supabase.from("profiles")
             .select("id", {count: "exact", head: true})
-            .eq("role", "ADMIN").eq("is_locked", false);
+            .eq("role", "ADMIN").eq("is_locked", false).eq("approval_status", "APPROVED");
           if (countError) throw countError;
           if ((count ?? 0) <= 1) {
             const {data: target, error: targetError} = await supabase.from("profiles")
-              .select("role,is_locked").eq("id", data.id).single();
+              .select("role,is_locked,approval_status").eq("id", data.id).single();
             if (targetError) throw targetError;
-            if (target.role === "ADMIN" && !target.is_locked) {
+            if (target.role === "ADMIN" && !target.is_locked && target.approval_status === "APPROVED") {
               return NextResponse.json({error: "At least one active administrator must remain."}, {status: 400});
             }
           }
         }
         const {data: row, error} = await supabase.from("profiles").update({
           role: data.role,
+          approval_status: data.approvalStatus,
           organization_id: data.organizationId,
           is_locked: data.isLocked
         }).eq("id", data.id).select("id").single();
