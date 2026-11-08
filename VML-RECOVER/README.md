@@ -105,6 +105,8 @@ Add these in Vercel Project Settings → Environment Variables for the deploymen
 Troubleshooting:
 
 - If the owner invitation email opens `localhost`, Vercel must be redeployed with its production domain configured in **Authentication → URL Configuration → Redirect URLs** in Supabase. The app uses Vercel's production domain to generate the owner's link; do not set the Vercel site URL to `http://localhost:3000`.
+- If owner setup reports an invitation problem, first check **Vercel → Project → Deployments → latest deployment → Functions/Runtime Logs** for `Initial administrator invitation failed`, then check **Supabase → Logs → Auth** for the same time. The app now distinguishes email rate limits, existing Auth accounts, and mismatched Vercel project credentials. Do not share service-role keys or the one-time setup code.
+- If setup says an unverified Auth account already exists, inspect **Supabase → Authentication → Users**. Only delete that user if you confirm it is an unused owner-setup attempt; otherwise share the Vercel/Auth log error with the project administrator.
 - If the app says **Too many administrator setup attempts**, wait one hour or have the project owner clear the hashed setup-attempt counters in SQL Editor with `truncate table public.admin_bootstrap_attempts;`.
 - If Supabase says **email rate limit exceeded**, stop requesting codes/invitations and wait for Supabase's email-send cooldown, or configure a custom SMTP provider in Supabase Auth. Clearing the app's setup counters does not reset Supabase's email limit.
 - Password recovery is a separate email from verification; it still requires working Supabase email delivery if a user forgets their password.

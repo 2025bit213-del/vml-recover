@@ -16,6 +16,43 @@ function safeEqual(left:string,right:string) {
   return timingSafeEqual(leftHash,rightHash);
 }
 
+function logAuthFailure(action:string,error:unknown) {
+  if(error&&typeof error==="object"&&"message" in error) {
+    const authError=error as {message:unknown;status?:unknown;code?:unknown;name?:unknown};
+    console.error(action,{
+      name:typeof authError.name==="string"?authError.name:undefined,
+      status:typeof authError.status==="number"?authError.status:undefined,
+      code:typeof authError.code==="string"?authError.code:undefined,
+      message:typeof authError.message==="string"?authError.message:"Unknown Supabase Auth error"
+    });
+    return;
+  }
+  console.error(action,error);
+}
+
+function invitationErrorMessage(error:unknown) {
+  const message=error&&typeof error==="object"&&"message" in error&&typeof error.message==="string"
+    ? error.message.toLowerCase()
+    : "";
+  const status=error&&typeof error==="object"&&"status" in error&&typeof error.status==="number"
+    ? error.status
+    : undefined;
+
+  if(message.includes("rate limit")||message.includes("too many requests")) {
+    return "Supabase is temporarily limiting email sends. Wait for the email cooldown before trying again.";
+  }
+  if(message.includes("already registered")||message.includes("already been registered")||message.includes("already exists")) {
+    return "This email already has a Supabase Auth account. Check Authentication → Users. If it is verified, retry setup. If it is unverified, do not delete it unless you are sure it is only an unused setup attempt.";
+  }
+  if(status===401||status===403) {
+    return "Supabase rejected the setup request. Check that NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel belong to the same Supabase project.";
+  }
+  if(message.includes("smtp")||message.includes("email")||message.includes("mail")) {
+    return "Supabase could not send the owner email. Check Authentication → SMTP Settings and Supabase Auth logs; do not keep retrying while the mail provider is failing.";
+  }
+  return "Supabase could not create or email the owner account. Check Vercel Function Logs for /api/admin/bootstrap and Supabase Auth logs for the timestamp of this attempt.";
+}
+
 export async function POST(request:NextRequest) {
   let body:unknown;
   try {
@@ -63,14 +100,15 @@ export async function POST(request:NextRequest) {
   }
   if((count??0)>0) return NextResponse.json({error:"Initial setup is already complete. Ask an administrator to review your account request."},{status:409});
 
-  let profileId:string|undefined;
-  const {data:existingProfile,error:lookupError}=await admin.from("profiles")
-    .select("id").eq("email",email).maybeSingle();
-  if(lookupError) {
-    console.error("Admin bootstrap profile lookup failed",lookupError);
-    return NextResponse.json({error:"Could not check this account. Confirm the latest database migrations are applied."},{status:503});
+  const {data:userList,error:userListError}=await admin.auth.admin.listUsers({page:1,perPage:1000});
+  if(userListError) {
+    logAuthFailure("Admin bootstrap Auth-user lookup failed",userListError);
+    return NextResponse.json({
+      error:"Could not check the owner account. Verify the Vercel Supabase URL and server-only service-role key, then check Vercel Function Logs."
+    },{status:503});
   }
-  profileId=existingProfile?.id;
+  const existingUser=userList.users.find(user=>user.email?.toLowerCase()===email);
+  let profileId=existingUser?.id;
 
   let invitationSent=false;
   if(!profileId) {
@@ -85,15 +123,42 @@ export async function POST(request:NextRequest) {
       redirectTo:callbackUrl.toString()
     });
     if(error||!data.user) {
-      console.error("Initial administrator invitation failed",error);
-      return NextResponse.json({error:"Could not send the setup invitation. Check Supabase email configuration and try again."},{status:502});
+      logAuthFailure("Initial administrator invitation failed",error);
+      return NextResponse.json({error:invitationErrorMessage(error)},{status:502});
     }
     profileId=data.user.id;
     invitationSent=true;
-  } else {
-    const {data:{user:existingUser},error:userError}=await admin.auth.admin.getUserById(profileId);
-    if(userError||!existingUser?.email_confirmed_at) {
-      return NextResponse.json({error:"The owner account must verify its email before it can become the administrator. Remove the unverified account from Supabase Auth and retry setup."},{status:409});
+  } else if(existingUser&&!existingUser.email_confirmed_at) {
+    return NextResponse.json({
+      error:"This email already has an unverified Supabase Auth account, so a second invitation was not sent. Check Authentication → Users. Only remove that Auth user if you confirm it is an unused owner-setup attempt, then retry."
+    },{status:409});
+  }
+
+  if(!profileId) {
+    console.error("Admin bootstrap did not resolve an Auth user ID");
+    return NextResponse.json({error:"Could not resolve the owner account. Check Vercel Function Logs."},{status:503});
+  }
+
+  if(!invitationSent) {
+    const {data:existingProfile,error:profileError}=await admin.from("profiles")
+      .select("id").eq("id",profileId).maybeSingle();
+    if(profileError) {
+      console.error("Admin bootstrap profile lookup failed",profileError);
+      return NextResponse.json({error:"Could not check the owner profile. Confirm migration 0004 succeeded and inspect Vercel Function Logs."},{status:503});
+    }
+    if(!existingProfile) {
+      const {error:createProfileError}=await admin.from("profiles").insert({
+        id:profileId,
+        full_name:fullName,
+        email,
+        role:"DEBTOR",
+        requested_role:"ADMIN",
+        approval_status:"PENDING"
+      });
+      if(createProfileError) {
+        console.error("Admin bootstrap profile recovery failed",createProfileError);
+        return NextResponse.json({error:"The verified owner exists but its app profile could not be created. Check Vercel Function Logs before retrying."},{status:503});
+      }
     }
   }
 
@@ -102,7 +167,7 @@ export async function POST(request:NextRequest) {
     p_full_name:fullName
   });
   if(claimError) {
-    console.error("Initial administrator claim failed",claimError);
+    logAuthFailure("Initial administrator claim failed",claimError);
     return NextResponse.json({error:"Administrator setup could not be completed. Contact the site owner."},{status:409});
   }
 
