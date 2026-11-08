@@ -34,7 +34,12 @@ export async function POST(request:NextRequest) {
   const supabaseUrl=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY;
   if(!supabaseUrl||!serviceKey) {
-    return NextResponse.json({error:"Account requests are temporarily unavailable."},{status:503});
+    const missing=[];
+    if(!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
+    if(!serviceKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    return NextResponse.json({
+      error:`Account requests are not configured. Add ${missing.join(" and ")} in Vercel Environment Variables, then redeploy. Keep the service-role key server-only.`
+    },{status:503});
   }
 
   const admin=createClient(supabaseUrl,serviceKey,{auth:{autoRefreshToken:false,persistSession:false}});
@@ -45,8 +50,23 @@ export async function POST(request:NextRequest) {
     const attemptKey=createHash("sha256").update(key).digest("hex");
     const {data:rateAllowed,error:rateError}=await admin.rpc("consume_signup_attempt",{p_attempt_key:attemptKey});
     if(rateError) {
-      console.error("Signup rate check failed",rateError);
-      return NextResponse.json({error:"Account requests are temporarily unavailable."},{status:503});
+      console.error("Signup rate check failed",{
+        code:rateError.code,
+        message:rateError.message
+      });
+      if(rateError.code==="42883"||rateError.code==="42P01"||rateError.code==="PGRST202") {
+        return NextResponse.json({
+          error:"The signup rate-limit database objects are missing. In Supabase SQL Editor, run the updated 0004_signup_approval_password_login.sql migration, then retry."
+        },{status:503});
+      }
+      if(rateError.code==="42501") {
+        return NextResponse.json({
+          error:"Supabase denied the signup rate-limit check. Rerun the updated 0004_signup_approval_password_login.sql migration to restore its service-role permission."
+        },{status:503});
+      }
+      return NextResponse.json({
+        error:"Supabase could not validate this account request. Check the Vercel Function Logs for “Signup rate check failed” and confirm migration 0004 succeeded."
+      },{status:503});
     }
     if(!rateAllowed) {
       return NextResponse.json({error:"Too many account requests. Try again later."},{status:429});
